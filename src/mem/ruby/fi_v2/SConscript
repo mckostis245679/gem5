@@ -1,0 +1,8 @@
+Import("*")
+
+SimObject(
+    "RubyCoherenceFaultInjector.py",
+    sim_objects=["RubyCoherenceFaultInjector"],
+)
+
+Source("ruby_coherence_fault_injector.cc")

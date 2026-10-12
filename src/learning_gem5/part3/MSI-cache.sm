@@ -117,6 +117,7 @@ machine(MachineType:L1Cache, "MSI cache")
     // Events that can be triggered on incoming messages. These are the events
     // that will trigger transitions
     enumeration(Event, desc="Cache events") {
+        FI_Invalidate, desc="Fault injector invalidates an L1 line";
         // From the processor/sequencer/mandatory queue
         Load,           desc="Load from processor";
         Store,          desc="Store from processor";

@@ -1,0 +1,58 @@
+Global frequency set at 1000000000000 ticks per second
+warn: failed to generate dot output from m5out_fault/config.board.cache_hierarchy.ruby_system.dot
+src/mem/dram_interface.cc:690: warn: DRAM device capacity (8192 Mbytes) does not match the address range assigned (1024 Mbytes)
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+board.remote_gdb: Listening for connections on port 7002
+gem5 Simulator System.  https://www.gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 version 25.1.0.1
+gem5 compiled Aug 28 2026 21:27:04
+gem5 started Sep 25 2026 02:45:41
+gem5 executing on kostas-IdeaPad-Slim-5, pid 259349
+command line: /home/kostas/gem5/build/X86_MESI/gem5.opt -d m5out_fault ./run_mesi_fault.py --binary ./microbenchmarks/build/no-false-sharing --fault-json ./fault.json
+
+Loaded fault:
+{
+    "fault_type": "data_bitflip",
+    "target": "L1D",
+    "core": 1,
+    "bank": 0,
+    "idx": 27,
+    "tick": 4414148847,
+    "bit": 112
+}
+Target cache idx: 27
+"neato" with args ['-Tsvg', '/tmp/tmpw0_ci7fg/tmpyxuo3w0v'] returned code: 1
+
+stdout, stderr:
+ b''
+b'There is no layout engine support for "neato"\n Use one of: dot\n'
+
+src/mem/ruby/system/Sequencer.cc:707: warn: Replacement policy updates recently became the responsibility of SLICC state machines. Make sure to setMRU() near callbacks in .sm files!
+src/sim/mem_state.cc:443: info: Increasing stack size by one page.
+src/sim/syscall_emul.cc:86: warn: ignoring syscall set_robust_list(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall rseq(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+Starting address of array without FS : 0x40c0
+Address of loop_count var: 0x4080
+Thread 0 counter address: 0x40c0
+Thread 1 counter address: 0x4100
+src/sim/syscall_emul.cc:97: warn: ignoring syscall rt_sigaction(...)
+      (further warnings will be suppressed)
+src/sim/syscall_emul.cc:97: warn: ignoring syscall rt_sigprocmask(...)
+      (further warnings will be suppressed)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall madvise(...)
+src/sim/power_state.cc:105: warn: PowerState: Already in the requested power state, request ignored
+src/sim/syscall_emul.cc:86: warn: ignoring syscall set_robust_list(...)
+src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:275: info: RUBY_FAULT_SELECTED tick=4414148847 cache=board.cache_hierarchy.ruby_system.l1_controllers1.L1Dcache fault_type=data_bitflip idx=27 line=0xc16c0 permission=5
+src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:392: info: RUBY_DATA_FAULT_INJECTED tick=4414148847 cache=board.cache_hierarchy.ruby_system.l1_controllers1.L1Dcache level=L1 idx=27 line=0xc16c0 bit_position=112 byte_offset=14 bit_in_byte=0 old_byte=0x64 new_byte=0x65
+thread 0 output 262144
+thread 1 output 262144
+src/sim/syscall_emul.cc:86: warn: ignoring syscall madvise(...)
+Time to completion: 0.005628 seconds
+Benchmark completed successfully.
+Exiting at tick 6360771861 because: exiting with last active thread context

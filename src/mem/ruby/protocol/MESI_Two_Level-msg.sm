@@ -62,6 +62,8 @@ enumeration(CoherenceResponseType, desc="...") {
   FLUSH_ACK, desc="Flush ack";
 }
 
+
+
 // RequestMsg
 structure(RequestMsg, desc="...", interface="Message") {
   Addr addr,              desc="Physical address for this request";

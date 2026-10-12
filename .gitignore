@@ -38,3 +38,8 @@ configs/dram/lowp_sweep.cfg
 .vscode
 typings
 .DS_Store
+# Ignore generated fault-injection subdirectories
+configs/fault_injection/*/
+
+# Keep microbenchmarks
+!configs/fault_injection/microbenchmarks/

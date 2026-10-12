@@ -193,6 +193,20 @@ CacheMemory::getAddressAtIdx(int idx) const
     return entry->m_Address;
 }
 
+AbstractCacheEntry*
+CacheMemory::getEntryAtIdx(int idx) const
+{
+    assert(idx >= 0);
+    assert(idx < getNumBlocks());
+
+    const int set = idx / m_cache_assoc;
+    const int way = idx % m_cache_assoc;
+
+    assert(set < m_cache_num_sets);
+    assert(way < m_cache_assoc);
+
+    return m_cache[set][way];
+}
 bool
 CacheMemory::tryCacheAccess(Addr address, RubyRequestType type,
                             DataBlock*& data_ptr)

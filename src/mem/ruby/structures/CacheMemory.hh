@@ -158,7 +158,7 @@ class CacheMemory : public SimObject
     int getCacheAssoc() const { return m_cache_assoc; }
     int getNumBlocks() const { return m_cache_num_sets * m_cache_assoc; }
     Addr getAddressAtIdx(int idx) const;
-
+    AbstractCacheEntry* getEntryAtIdx(int idx) const;
   private:
     // convert a Address to its location in the cache
     int64_t addressToCacheSet(Addr address) const;

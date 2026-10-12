@@ -1,0 +1,7 @@
+Import('*')
+
+SimObject('FaultInjector.py', sim_objects=['FaultInjector'])
+Source('fault_injector.cc')
+
+
+DebugFlag('FIExample')
