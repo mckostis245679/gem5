@@ -18,14 +18,10 @@ from gem5.components.processors.simple_processor import (
     SimpleProcessor,
 )
 from gem5.isas import ISA
-from gem5.resources.resource import BinaryResource
+from gem5.resources.resource import BinaryResource, FileResource
 from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 
-requires(
-    isa_required=ISA.X86,
-    coherence_protocol_required=(CoherenceProtocol.MESI_TWO_LEVEL),
-)
 
 
 def load_fault(path):
@@ -55,49 +51,66 @@ parser.add_argument(
     help="Path to the generated fault JSON file",
 )
 
+parser.add_argument("--config", required=True)
+parser.add_argument("--max-ticks", type=int)
 args = parser.parse_args()
+
+with open(args.config) as config_file:
+    config = json.load(config_file)
+system = config["system"]
+
+requires(
+    isa_required=ISA[system["isa"].upper()],
+    coherence_protocol_required=CoherenceProtocol.MESI_TWO_LEVEL,
+)
 
 fault = load_fault(args.fault_json)
 
 print("Loaded fault:")
+
 print(json.dumps(fault, indent=4))
 print(f"Target cache idx: {fault['idx']}")
 
 
 cache_hierarchy = FaultInjectingMESITwoLevel(
     fault=fault,
-    l1i_size="2KiB",
-    l1i_assoc=8,
-    l1d_size="2KiB",
-    l1d_assoc=8,
-    l2_size="4KiB",
-    l2_assoc=8,
-    num_l2_banks=1,
+    l1i_size=system["l1i_size"],
+    l1i_assoc=system["l1i_assoc"],
+    l1d_size=system["l1d_size"],
+    l1d_assoc=system["l1d_assoc"],
+    l2_size=system["l2_size"],
+    l2_assoc=system["l2_assoc"],
+    num_l2_banks=system["l2_banks"],
 )
 
 
 processor = SimpleProcessor(
-    cpu_type=CPUTypes.TIMING,
-    isa=ISA.X86,
-    num_cores=2,
+    cpu_type=CPUTypes[system["cpu_type"].upper()],
+    isa=ISA[system["isa"].upper()],
+    num_cores=system["num_cores"],
 )
 
 
-memory = SingleChannelDDR3_1600(size="1GiB")
+memory = SingleChannelDDR3_1600(size=system["memory_size"])
 
 
 board = SimpleBoard(
-    clk_freq="3GHz",
+    clk_freq=system["clk_freq"],
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
 )
 
 
-board.set_se_binary_workload(BinaryResource(local_path=args.binary))
+workload_options = {"arguments": config["workload"]["arguments"]}
+if config["workload"]["stdin"]:
+    workload_options["stdin_file"] = FileResource(local_path=config["workload"]["stdin"])
+board.set_se_binary_workload(BinaryResource(local_path=args.binary), **workload_options)
 
 
 simulator = Simulator(board=board)
+if args.max_ticks is not None:
+    simulator.set_max_ticks(args.max_ticks)
 simulator.run()
 
 
