@@ -7,10 +7,9 @@ import random
 from pathlib import Path
 from statistics import NormalDist
 
-
 LINE_SIZE_BYTES = 64
-DATA_BITS_PER_LINE = LINE_SIZE_BYTES * 8   # 512 bits
-COHERENCE_BITS_PER_LINE = 2                # MESI-like 4-state encoding
+DATA_BITS_PER_LINE = LINE_SIZE_BYTES * 8  # 512 bits
+COHERENCE_BITS_PER_LINE = 2  # MESI-like 4-state encoding
 
 
 def required_injections(N, error, confidence, p=0.5):
@@ -29,8 +28,8 @@ def required_injections(N, error, confidence, p=0.5):
     """
     t = NormalDist().inv_cdf((1.0 + confidence) / 2.0)
 
-    numerator = N * (t ** 2) * p * (1.0 - p)
-    denominator = (error ** 2) * (N - 1) + (t ** 2) * p * (1.0 - p)
+    numerator = N * (t**2) * p * (1.0 - p)
+    denominator = (error**2) * (N - 1) + (t**2) * p * (1.0 - p)
 
     return math.ceil(numerator / denominator), t
 
@@ -122,35 +121,33 @@ def main():
         "--error",
         type=float,
         required=True,
-        help="Target margin of error, e.g. 0.05 for +/-5%%."
+        help="Target margin of error, e.g. 0.05 for +/-5%%.",
     )
     parser.add_argument(
         "--confidence",
         type=float,
         required=True,
-        help="Confidence level, e.g. 0.95 for 95%%."
+        help="Confidence level, e.g. 0.95 for 95%%.",
     )
 
     parser.add_argument(
         "--fault-type",
         choices=["data", "coherence", "both"],
         required=True,
-        help="Bits eligible for injection during this campaign."
+        help="Bits eligible for injection during this campaign.",
     )
 
     parser.add_argument(
         "--target",
         choices=["L1D"],
         required=True,
-        help="Cache level targeted by this campaign."
+        help="Cache level targeted by this campaign.",
     )
 
     parser.add_argument("--seed", type=int, default=None)
 
     parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("fault_campaign.json")
+        "--output", type=Path, default=Path("fault_campaign.json")
     )
 
     args = parser.parse_args()
