@@ -3,28 +3,28 @@ warn: failed to generate dot output from m5out_fault/config.board.cache_hierarch
 src/mem/dram_interface.cc:690: warn: DRAM device capacity (8192 Mbytes) does not match the address range assigned (1024 Mbytes)
 src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
 src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
-board.remote_gdb: Listening for connections on port 7002
+board.remote_gdb: Listening for connections on port 7000
 gem5 Simulator System.  https://www.gem5.org
 gem5 is copyrighted software; use the --copyright option for details.
 
 gem5 version 25.1.0.1
-gem5 compiled Aug 28 2026 21:27:04
-gem5 started Sep 25 2026 02:45:41
-gem5 executing on kostas-IdeaPad-Slim-5, pid 259349
-command line: /home/kostas/gem5/build/X86_MESI/gem5.opt -d m5out_fault ./run_mesi_fault.py --binary ./microbenchmarks/build/no-false-sharing --fault-json ./fault.json
+gem5 compiled Oct 22 2026 15:42:10
+gem5 started Oct 25 2026 13:31:04
+gem5 executing on kostas-IdeaPad-Slim-5, pid 238829
+command line: /home/kostas/gem5/build/X86_MESI/gem5.opt -d m5out_fault --debug-flags=RubyFaultCache --debug-file=ruby_fault_cache.log ./run_mesi_fault.py --binary ./microbenchmarks/build/no-false-sharing --fault-json ./fault.json
 
 Loaded fault:
 {
     "fault_type": "data_bitflip",
-    "target": "L1D",
-    "core": 1,
+    "target": "L2",
+    "core": 0,
     "bank": 0,
-    "idx": 27,
-    "tick": 4414148847,
-    "bit": 112
+    "idx": 17,
+    "tick": 709982808,
+    "bit": "1"
 }
-Target cache idx: 27
-"neato" with args ['-Tsvg', '/tmp/tmpw0_ci7fg/tmpyxuo3w0v'] returned code: 1
+Target cache idx: 17
+"neato" with args ['-Tsvg', '/tmp/tmpp3z3gl00/tmpcmwmpd76'] returned code: 1
 
 stdout, stderr:
  b''
@@ -46,10 +46,10 @@ src/sim/syscall_emul.cc:97: warn: ignoring syscall rt_sigaction(...)
 src/sim/syscall_emul.cc:97: warn: ignoring syscall rt_sigprocmask(...)
       (further warnings will be suppressed)
 src/sim/syscall_emul.cc:86: warn: ignoring syscall madvise(...)
+src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:319: info: RUBY_FAULT_SELECTED tick=709982808 cache=board.cache_hierarchy.ruby_system.l2_controllers.L2cache fault_type=data_bitflip idx=17 line=0x52480 permission=2
+src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:436: info: RUBY_DATA_FAULT_INJECTED tick=709982808 cache=board.cache_hierarchy.ruby_system.l2_controllers.L2cache level=L2 idx=17 line=0x52480 bit_position=1 byte_offset=0 bit_in_byte=1 old_byte=0xa0 new_byte=0xa2
 src/sim/power_state.cc:105: warn: PowerState: Already in the requested power state, request ignored
 src/sim/syscall_emul.cc:86: warn: ignoring syscall set_robust_list(...)
-src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:275: info: RUBY_FAULT_SELECTED tick=4414148847 cache=board.cache_hierarchy.ruby_system.l1_controllers1.L1Dcache fault_type=data_bitflip idx=27 line=0xc16c0 permission=5
-src/mem/ruby/fi_v2/ruby_coherence_fault_injector.cc:392: info: RUBY_DATA_FAULT_INJECTED tick=4414148847 cache=board.cache_hierarchy.ruby_system.l1_controllers1.L1Dcache level=L1 idx=27 line=0xc16c0 bit_position=112 byte_offset=14 bit_in_byte=0 old_byte=0x64 new_byte=0x65
 thread 0 output 262144
 thread 1 output 262144
 src/sim/syscall_emul.cc:86: warn: ignoring syscall madvise(...)

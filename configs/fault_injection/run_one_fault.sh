@@ -19,50 +19,50 @@ FAULT_JSON="./fault.json"
 FAULT_OUT="./fault.out"
 
 
-# 1. Create a genuine no-fault baseline once.
-if [ ! -f "$BASELINE" ]; then
-    echo "Creating fault-free baseline..."
+# # 1. Create a genuine no-fault baseline once.
+# if [ ! -f "$BASELINE" ]; then
+#     echo "Creating fault-free baseline..."
 
-    rm -rf m5out_baseline
+#     rm -rf m5out_baseline
 
-    "$GEM5" -d m5out_baseline "$BASELINE_CONFIG" \
-        --binary "$BINARY" \
-        > "$BASELINE" 2>&1
+#     "$GEM5" -d m5out_baseline "$BASELINE_CONFIG" \
+#         --binary "$BINARY" \
+#         > "$BASELINE" 2>&1
 
-    if [ $? -ne 0 ]; then
-        echo "Baseline run failed."
-        tail -n 30 "$BASELINE"
-        exit 1
-    fi
+#     if [ $? -ne 0 ]; then
+#         echo "Baseline run failed."
+#         tail -n 30 "$BASELINE"
+#         exit 1
+#     fi
 
-    echo "Baseline created."
-fi
+#     echo "Baseline created."
+# fi
 
-EXIT_TICK=$(
-    sed -n 's/.*Exiting at tick \([0-9][0-9]*\).*/\1/p' "$BASELINE" |
-    tail -1
-)
+# EXIT_TICK=$(
+#     sed -n 's/.*Exiting at tick \([0-9][0-9]*\).*/\1/p' "$BASELINE" |
+#     tail -1
+# )
 
-if [ -z "$EXIT_TICK" ]; then
-    echo "Could not find baseline exit tick."
-    exit 1
-fi
+# if [ -z "$EXIT_TICK" ]; then
+#     echo "Could not find baseline exit tick."
+#     exit 1
+# fi
 
-TICK_MIN=$((EXIT_TICK * 3 / 10))
-TICK_MAX=$((EXIT_TICK * 9 / 10))
+# TICK_MIN=$((EXIT_TICK * 3 / 10))
+# TICK_MAX=$((EXIT_TICK * 9 / 10))
 
-# 2. Generate one random fault.
-echo
-echo "Generating random fault..."
+# # 2. Generate one random fault.
+# echo
+# echo "Generating random fault..."
 
-python3 "$GENERATOR" \
-    --output "$FAULT_JSON" \
-    --target L1D \
-    --fault-type data_bitflip \
-    --num-cores 2 \
-    --tick-min "$TICK_MIN" \
-    --tick-max "$TICK_MAX" \
-    || exit 1
+# python3 "$GENERATOR" \
+#     --output "$FAULT_JSON" \
+#     --target L1D \
+#     --fault-type state \
+#     --num-cores 2 \
+#     --tick-min "$TICK_MIN" \
+#     --tick-max "$TICK_MAX" \
+#     || exit 1
 
 # 3. Run gem5 with the generated fault.
 echo
@@ -70,14 +70,17 @@ echo "Running fault-injected simulation..."
 
 rm -rf m5out_fault
 
-"$GEM5" -d m5out_fault "$FAULT_CONFIG" \
+"$GEM5" -d m5out_fault \
+    --debug-flags=RubyFaultCache \
+    --debug-file=ruby_fault_cache.log \
+    "$FAULT_CONFIG" \
     --binary "$BINARY" \
     --fault-json "$FAULT_JSON" \
     > "$FAULT_OUT" 2>&1 || true
 
-# 4. Parse against the no-fault baseline.
-echo
-echo "Parsing outcome..."
+# # 4. Parse against the no-fault baseline.
+# echo
+# echo "Parsing outcome..."
 
 python3 "$PARSER" \
     --baseline "$BASELINE" \

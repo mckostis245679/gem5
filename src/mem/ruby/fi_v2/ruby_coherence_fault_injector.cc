@@ -11,7 +11,11 @@
 #include "mem/ruby/protocol/MESI_Two_Level/L2Cache_State.hh"
 #include "mem/ruby/slicc_interface/AbstractCacheEntry.hh"
 #include "mem/ruby/structures/CacheMemory.hh"
+#include <limits>
+#include <sstream>
 
+#include "base/trace.hh"
+#include "debug/RubyFaultCache.hh"
 namespace gem5
 {
 
@@ -94,6 +98,11 @@ RubyCoherenceFaultInjector::RubyCoherenceFaultInjector(
     injectionEvent(
         [this] { inject(); },
         name() + ".injection_event"
+    ),
+    postInjectionDumpDelay(p.post_injection_dump_delay),
+    postInjectionDumpEvent(
+        [this] { printTargetCache("delayed_after_injection"); },
+        name() + ".post_injection_dump_event"
     )
 {
     fatal_if(
@@ -167,58 +176,93 @@ RubyCoherenceFaultInjector::startup()
     schedule(injectionEvent, injectionTick);
 }
 
+
 void
-RubyCoherenceFaultInjector::inject()
+RubyCoherenceFaultInjector::printTargetCache(const char *phase)
 {
+    if (!DTRACE(RubyFaultCache)) {
+        return;
+    }
+
     const int numBlocks = targetCache->getNumBlocks();
 
-    /*
-     * Diagnostic scan:
-     *
-     * getEntryAtIdx() is permission-agnostic. It returns the raw
-     * AbstractCacheEntry pointer stored in the physical set/way slot.
-     *
-     * Therefore:
-     *   nullptr  -> no entry object exists in this slot
-     *   non-null -> an entry exists, regardless of whether its permission
-     *               is Invalid, NotPresent, Read_Only, Read_Write, etc.
-     */
-   /* int allocatedEntryCount = 0;
-
+    DPRINTF(RubyFaultCache,
+        "CACHE_DUMP_BEGIN phase=%s tick=%llu cache=%s "
+        "target_idx=%u total_slots=%d\n",
+        phase,
+        static_cast<unsigned long long>(curTick()),
+        targetCache->name().c_str(),
+        targetIdx,
+        numBlocks);
 
     for (int idx = 0; idx < numBlocks; ++idx) {
-        AbstractCacheEntry *entry =
-            targetCache->getEntryAtIdx(idx);
+        AbstractCacheEntry *entry = targetCache->getEntryAtIdx(idx);
+
+        const char *selected =
+            static_cast<unsigned>(idx) == targetIdx ? "yes" : "no";
 
         if (entry == nullptr) {
+            DPRINTF(RubyFaultCache,
+                "CACHE_SLOT phase=%s idx=%d selected=%s entry=null\n",
+                phase, idx, selected);
             continue;
         }
 
-        ++allocatedEntryCount;
+        std::string state = "unknown";
 
-        inform(
-            "RUBY_ENTRY_INDEX "
-            "tick=%llu cache=%s idx=%d line=%#llx "
-            "permission=%d selected=%s",
-            static_cast<unsigned long long>(curTick()),
-            targetCache->name().c_str(),
+        if (targetLevel == "L1") {
+            if (auto *l1 = dynamic_cast<L1Cache_Entry *>(entry)) {
+                state = L1Cache_State_to_string(l1->getCacheState());
+            }
+        } else {
+            if (auto *l2 = dynamic_cast<L2Cache_Entry *>(entry)) {
+                state = L2Cache_State_to_string(l2->getCacheState());
+            }
+        }
+
+        std::ostringstream data;
+        entry->getDataBlk().print(data);
+
+        DPRINTF(RubyFaultCache,
+            "CACHE_SLOT phase=%s idx=%d line=%#llx "
+            "permission=%d state=%s selected=%s data=%s\n",
+            phase,
             idx,
             static_cast<unsigned long long>(entry->m_Address),
             static_cast<int>(entry->m_Permission),
-            idx == static_cast<int>(targetIdx) ? "yes" : "no"
-        );
+            state.c_str(),
+            selected,
+            data.str().c_str());
     }
 
-    inform(
-        "RUBY_ENTRY_INDEX_SCAN_END "
-        "tick=%llu cache=%s allocated_entries=%d total_slots=%d "
-        "target_idx=%u",
+    DPRINTF(RubyFaultCache,
+        "CACHE_DUMP_END phase=%s tick=%llu cache=%s\n",
+        phase,
         static_cast<unsigned long long>(curTick()),
-        targetCache->name().c_str(),
-        allocatedEntryCount,
-        numBlocks,
-        targetIdx
-    );*/
+        targetCache->name().c_str());
+}
+
+
+
+void
+RubyCoherenceFaultInjector::inject()
+{
+    printTargetCache("before_injection");
+
+    performInjection();
+
+    printTargetCache("immediately_after_injection");
+
+    schedule(
+        postInjectionDumpEvent,
+        curTick() + postInjectionDumpDelay
+    );
+}
+
+void
+RubyCoherenceFaultInjector::performInjection()
+{
+    const int numBlocks = targetCache->getNumBlocks();
 
     /*
      * targetIdx identifies exactly one physical cache slot (set/way).

@@ -1,9 +1,11 @@
 {
     "fault_type": "data_bitflip",
-    "target": "L1D",
-    "core": 1,
+    "target": "L2",
+    "core": 0,
     "bank": 0,
-    "idx": 27,
-    "tick": 4414148847,
-    "bit": 112
+    "idx": 17,
+    "tick": 709982808,
+    "bit": "1"
 }
+
+

@@ -6,3 +6,5 @@ SimObject(
 )
 
 Source("ruby_coherence_fault_injector.cc")
+
+DebugFlag('RubyFaultCache', 'Cache snapshots around fault injection')

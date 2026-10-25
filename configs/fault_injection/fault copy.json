@@ -1,0 +1,10 @@
+{
+    "fault_type": "state",
+    "target": "L2",
+    "core": 0,
+    "bank": 0,
+    "idx": 17,
+    "tick": 709982808,
+    "state": "SS"
+}
+

@@ -37,6 +37,10 @@ class RubyCoherenceFaultInjector(SimObject):
         0,
         "Bit position within the cache line for a data bit flip",
     )
+    post_injection_dump_delay = Param.Tick(
+        1000,
+        "Ticks after injection for the delayed cache dump; must be positive",
+    )
 
     cache_line_size = Param.Unsigned(
         64,

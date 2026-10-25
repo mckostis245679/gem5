@@ -27,6 +27,11 @@ class RubyCoherenceFaultInjector : public SimObject
     void startup() override;
 
   private:
+    void printTargetCache(const char *phase);
+    void performInjection();
+
+    const Tick postInjectionDumpDelay;
+    EventFunctionWrapper postInjectionDumpEvent;
     void inject();
 
     void injectL1(
