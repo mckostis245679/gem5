@@ -9,7 +9,10 @@ from statistics import NormalDist
 
 LINE_SIZE_BYTES = 64
 DATA_BITS_PER_LINE = LINE_SIZE_BYTES * 8  # 512 bits
-COHERENCE_BITS_PER_LINE = 2  # MESI-like 4-state encoding
+# Stable MESI Two Level L1 states that RubyCoherenceFaultInjector can force
+# (its new_state parameter). A state fault forces one of them; forcing the
+# line's current state is reported by the injector as not injected.
+L1_STATES = ("I", "S", "E", "M")
 
 
 def required_injections(N, error, confidence, p=0.5):
@@ -54,39 +57,43 @@ def cache_geometry(size_kib, assoc, name):
     return size_bytes, num_lines, num_sets
 
 
-def bits_per_line_for_fault_type(fault_type):
-    if fault_type == "data":
+def sites_per_line_for_fault_type(fault_type):
+    if fault_type == "data_bitflip":
         return DATA_BITS_PER_LINE
-    if fault_type == "coherence":
-        return COHERENCE_BITS_PER_LINE
+    if fault_type == "state":
+        return len(L1_STATES)
     if fault_type == "both":
-        return DATA_BITS_PER_LINE + COHERENCE_BITS_PER_LINE
+        return DATA_BITS_PER_LINE + len(L1_STATES)
     raise ValueError(f"Unknown fault type: {fault_type}")
 
 
-def decode_bit(bit_in_fault_space, campaign_fault_type):
+def decode_site(site, campaign_fault_type):
     """
-    Convert a per-line fault-space bit into:
-      - the concrete fault type
-      - the bit number inside that structure
+    Convert a per-line fault site into the fault fields understood by
+    RubyCoherenceFaultInjector:
+      - data_bitflip: {"fault_type": "data_bitflip", "bit": <0..511>}
+      - state:        {"fault_type": "state", "state": <I|S|E|M>}
 
-    For a 'both' campaign, the population is the union of:
-      data bits       0..511
-      coherence bits  0..1
+    For a 'both' campaign, the per-line sites are the union of:
+      data bits     0..511
+      L1 states     512..515 (I, S, E, M)
 
-    This means each physical bit has equal selection probability.
+    This means each site has equal selection probability.
     """
-    if campaign_fault_type == "data":
-        return "data_bitflip", bit_in_fault_space
+    if campaign_fault_type == "data_bitflip":
+        return {"fault_type": "data_bitflip", "bit": site}
 
-    if campaign_fault_type == "coherence":
-        return "coherence_bitflip", bit_in_fault_space
+    if campaign_fault_type == "state":
+        return {"fault_type": "state", "state": L1_STATES[site]}
 
     # both
-    if bit_in_fault_space < DATA_BITS_PER_LINE:
-        return "data_bitflip", bit_in_fault_space
+    if site < DATA_BITS_PER_LINE:
+        return {"fault_type": "data_bitflip", "bit": site}
 
-    return "coherence_bitflip", bit_in_fault_space - DATA_BITS_PER_LINE
+    return {
+        "fault_type": "state",
+        "state": L1_STATES[site - DATA_BITS_PER_LINE],
+    }
 
 
 def generate_unique_fault_ids(rng, N, n):
@@ -132,9 +139,12 @@ def main():
 
     parser.add_argument(
         "--fault-type",
-        choices=["data", "coherence", "both"],
+        choices=["data_bitflip", "state", "both"],
         required=True,
-        help="Bits eligible for injection during this campaign.",
+        help=(
+            "Faults eligible for injection during this campaign: data bit "
+            "flips, forced L1 coherence states, or both."
+        ),
     )
 
     parser.add_argument(
@@ -180,7 +190,7 @@ def main():
     except ValueError as exc:
         parser.error(str(exc))
 
-    target_bits_per_line = bits_per_line_for_fault_type(args.fault_type)
+    target_sites_per_line = sites_per_line_for_fault_type(args.fault_type)
 
     if args.target == "L1D":
         total_target_lines = args.num_cores * l1_lines_per_core
@@ -188,11 +198,11 @@ def main():
         # One shared L2.
         total_target_lines = l2_lines
 
-    bits_per_cycle = total_target_lines * target_bits_per_line
+    sites_per_cycle = total_target_lines * target_sites_per_line
 
     # Population:
-    #   every eligible bit × every eligible workload cycle
-    N = bits_per_cycle * args.cycles
+    #   every eligible fault site × every eligible workload cycle
+    N = sites_per_cycle * args.cycles
 
     n, t = required_injections(
         N=N,
@@ -209,17 +219,12 @@ def main():
 
     for fault_id in fault_ids:
         # Population layout:
-        # [cycle][cache-line slot][eligible bit]
-        cycle = fault_id // bits_per_cycle
-        inside_cycle = fault_id % bits_per_cycle
+        # [cycle][cache-line slot][eligible fault site]
+        cycle = fault_id // sites_per_cycle
+        inside_cycle = fault_id % sites_per_cycle
 
-        global_line = inside_cycle // target_bits_per_line
-        bit_in_fault_space = inside_cycle % target_bits_per_line
-
-        actual_fault_type, bit = decode_bit(
-            bit_in_fault_space,
-            args.fault_type,
-        )
+        global_line = inside_cycle // target_sites_per_line
+        site = inside_cycle % target_sites_per_line
 
         if args.target == "L1D":
             core = global_line // l1_lines_per_core
@@ -230,13 +235,12 @@ def main():
             idx = global_line
 
         fault = {
-            "fault_type": actual_fault_type,
             "target": args.target,
             "core": core,
             "bank": 0,
             "idx": idx,
             "cycle": cycle,
-            "bit": bit,
+            **decode_site(site, args.fault_type),
         }
 
         faults.append(fault)
@@ -245,7 +249,7 @@ def main():
         "metadata": {
             "line_size_bytes": LINE_SIZE_BYTES,
             "data_bits_per_line": DATA_BITS_PER_LINE,
-            "coherence_bits_per_line": COHERENCE_BITS_PER_LINE,
+            "l1_states": list(L1_STATES),
             "l1d_size_kib_per_core": args.l1d_size_kib,
             "l1d_assoc": args.l1d_assoc,
             "l1d_sets_per_core": l1_sets,
@@ -281,8 +285,8 @@ def main():
     print(f"Target: {args.target}")
     print(f"Campaign fault type: {args.fault_type}")
     print(f"Target cache-line slots: {total_target_lines}")
-    print(f"Eligible bits per line: {target_bits_per_line}")
-    print(f"Eligible bits per cycle: {bits_per_cycle}")
+    print(f"Eligible fault sites per line: {target_sites_per_line}")
+    print(f"Eligible fault sites per cycle: {sites_per_cycle}")
     print(f"Population size N: {N}")
     print(f"Critical value t: {t:.6f}")
     print(f"Required injections n: {n}")
