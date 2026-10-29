@@ -7,21 +7,17 @@ from pathlib import Path
 from fault_injecting_mesi import (
     FaultInjectingMESITwoLevel,
 )
+from parsec_fs import (
+    build_board,
+    set_parsec_workload,
+)
 
 from gem5.coherence_protocol import CoherenceProtocol
-from gem5.components.boards.simple_board import SimpleBoard
-from gem5.components.memory.single_channel import (
-    SingleChannelDDR3_1600,
-)
 from gem5.components.processors.cpu_types import CPUTypes
-from gem5.components.processors.simple_processor import (
-    SimpleProcessor,
-)
 from gem5.isas import ISA
-from gem5.resources.resource import BinaryResource, FileResource
+from gem5.simulate.exit_event import ExitEvent
 from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
-
 
 
 def load_fault(path):
@@ -33,15 +29,16 @@ def load_fault(path):
 
 parser = argparse.ArgumentParser(
     description=(
-        "Run two-core MESI Two Level using a "
-        "fault description loaded from JSON."
+        "Restore the PARSEC ROI checkpoint on a MESI Two Level "
+        "full-system board and inject a fault loaded from JSON."
     )
 )
 
 parser.add_argument(
-    "--binary",
+    "--checkpoint",
     required=True,
-    help="Path to a statically linked x86 workload",
+    type=Path,
+    help="ROI checkpoint created by run_mesi_checkpoint.py",
 )
 
 parser.add_argument(
@@ -52,7 +49,11 @@ parser.add_argument(
 )
 
 parser.add_argument("--config", required=True)
-parser.add_argument("--max-ticks", type=int)
+parser.add_argument(
+    "--max-ticks",
+    type=int,
+    help="Absolute tick at which to stop the simulation",
+)
 args = parser.parse_args()
 
 with open(args.config) as config_file:
@@ -60,7 +61,7 @@ with open(args.config) as config_file:
 system = config["system"]
 
 requires(
-    isa_required=ISA[system["isa"].upper()],
+    isa_required=ISA.X86,
     coherence_protocol_required=CoherenceProtocol.MESI_TWO_LEVEL,
 )
 
@@ -84,31 +85,21 @@ cache_hierarchy = FaultInjectingMESITwoLevel(
 )
 
 
-processor = SimpleProcessor(
-    cpu_type=CPUTypes[system["cpu_type"].upper()],
-    isa=ISA[system["isa"].upper()],
-    num_cores=system["num_cores"],
+board = build_board(
+    config, CPUTypes[system["cpu_type"].upper()], cache_hierarchy
 )
+set_parsec_workload(board, config, checkpoint=args.checkpoint)
 
 
-memory = SingleChannelDDR3_1600(size=system["memory_size"])
+def on_workend():
+    print("ROI finished")
+    yield True
 
 
-board = SimpleBoard(
-    clk_freq=system["clk_freq"],
-    processor=processor,
-    memory=memory,
-    cache_hierarchy=cache_hierarchy,
+simulator = Simulator(
+    board=board,
+    on_exit_event={ExitEvent.WORKEND: on_workend()},
 )
-
-
-workload_options = {"arguments": config["workload"]["arguments"]}
-if config["workload"]["stdin"]:
-    workload_options["stdin_file"] = FileResource(local_path=config["workload"]["stdin"])
-board.set_se_binary_workload(BinaryResource(local_path=args.binary), **workload_options)
-
-
-simulator = Simulator(board=board)
 if args.max_ticks is not None:
     simulator.set_max_ticks(args.max_ticks)
 simulator.run()

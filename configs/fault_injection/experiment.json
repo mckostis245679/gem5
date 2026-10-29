@@ -1,37 +1,41 @@
 {
-  "system": {
-    "l1i_size": "2KiB",
-    "l1i_assoc": 8,
-    "l1d_size": "2KiB",
-    "l1d_assoc": 8,
-    "l2_size": "4KiB",
-    "l2_assoc": 8,
-    "l2_banks": 1,
-    "cpu_type": "TIMING",
-    "isa": "X86",
-    "num_cores": 2,
-    "clk_freq": "3GHz",
-    "memory_size": "1GiB"
-  },
-  "workload": {
-    "binary": "~/gem5/configs/fault_injection/microbenchmarks/build/no-false-sharing",
-    "arguments": [],
-    "stdin": null
-  },
-  "campaign": {
-    "target": "L1D",
-    "fault_type": "both",
-    "confidence": 0.95,
-    "error": 0.05,
-    "seed": 12345
-  },
-  "runtime": {
-    "gem5_binary": "~/gem5/build/X86_MESI/gem5.opt",
-    "fault_module_path": "~/gem5/configs/fault_injection",
-    "output_dir": "results",
-    "parallel_jobs": 4,
-    "baseline_timeout_seconds": 3600,
-    "fault_timeout_seconds": 600,
-    "fault_max_ticks_factor": 5.0
-  }
+    "system": {
+        "l1i_size": "2KiB",
+        "l1i_assoc": 8,
+        "l1d_size": "2KiB",
+        "l1d_assoc": 8,
+        "l2_size": "4KiB",
+        "l2_assoc": 8,
+        "l2_banks": 1,
+        "cpu_type": "TIMING",
+        "isa": "X86",
+        "num_cores": 2,
+        "clk_freq": "3GHz",
+        "memory_size": "1GiB"
+    },
+    "workload": {
+        "benchmark": "blackscholes",
+        "size": "simsmall",
+        "kernel": "x86-linux-kernel-4.19.83",
+        "kernel_version": "1.0.0",
+        "disk_image": "x86-parsec",
+        "disk_image_version": "1.0.0"
+    },
+    "campaign": {
+        "target": "L1D",
+        "fault_type": "both",
+        "confidence": 0.95,
+        "error": 0.05,
+        "seed": 12345
+    },
+    "runtime": {
+        "gem5_binary": "~/gem5/build/X86_MESI/gem5.opt",
+        "fault_module_path": "~/gem5/configs/fault_injection",
+        "output_dir": "results",
+        "parallel_jobs": 4,
+        "checkpoint_timeout_seconds": 3600,
+        "baseline_timeout_seconds": 3600,
+        "fault_timeout_seconds": 600,
+        "fault_max_ticks_factor": 5.0
+    }
 }
