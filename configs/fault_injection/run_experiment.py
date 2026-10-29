@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """python3 run_experiment.py [experiment.json]"""
 
+import ast
+import fcntl
+import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +16,53 @@ from pathlib import Path
 from fault_outcomes import summarize
 
 HERE = Path(__file__).resolve().parent
+
+# System settings the ROI checkpoint depends on. Cache geometry, L2 banks
+# and the detailed CPU type are not part of it (the checkpoint is taken on
+# KVM, which bypasses the Ruby caches), so campaigns varying only those
+# share a checkpoint.
+CHECKPOINT_SYSTEM_KEYS = ("isa", "num_cores", "memory_size", "clk_freq")
+
+
+def run_script_text():
+    """parsec_fs.RUN_SCRIPT, read without importing gem5."""
+    tree = ast.parse((HERE / "parsec_fs.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(target, "id", None) == "RUN_SCRIPT"
+            for target in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise RuntimeError("RUN_SCRIPT not found in parsec_fs.py")
+
+
+def checkpoint_key(config):
+    """Name and description of the guest setup a checkpoint captures.
+
+    A rebuilt disk image or a changed guest run script (read before the
+    checkpoint) also needs a new boot.
+    """
+    workload = config["workload"]
+    system = config["system"]
+    image = Path(workload["disk_image"]).expanduser().resolve()
+    key = {
+        "workload": workload,
+        "system": {k: system[k] for k in CHECKPOINT_SYSTEM_KEYS},
+        "disk_image": {
+            "path": str(image),
+            "size": image.stat().st_size,
+            "mtime_ns": image.stat().st_mtime_ns,
+        },
+        "run_script": run_script_text(),
+    }
+    digest = hashlib.sha256(
+        json.dumps(key, sort_keys=True).encode()
+    ).hexdigest()[:12]
+    name = (
+        f"{workload['benchmark']}_{workload['size']}_"
+        f"{system['num_cores']}c_{digest}"
+    )
+    return name, key
 
 
 def main():
@@ -23,8 +75,14 @@ def main():
     system, campaign, runtime = (
         config[key] for key in ("system", "campaign", "runtime")
     )
+    runtime.setdefault("checkpoint_dir", "checkpoints")
     # Resolve paths once, before each simulation changes to its own directory.
-    for key in ("gem5_binary", "fault_module_path", "output_dir"):
+    for key in (
+        "gem5_binary",
+        "fault_module_path",
+        "output_dir",
+        "checkpoint_dir",
+    ):
         if runtime[key] is not None:
             runtime[key] = str(
                 (
@@ -66,26 +124,62 @@ def main():
                 timeout=timeout,
             )
 
-    # 0. Boot Linux with KVM and checkpoint at the start of the PARSEC ROI.
-    checkpoint = output / "checkpoint"
-    run_gem5(
-        "run_mesi_checkpoint.py",
-        output / "boot",
-        ["--checkpoint-dir", str(checkpoint)],
-        runtime["checkpoint_timeout_seconds"],
-    )
-    print(f"ROI checkpoint: {checkpoint}", flush=True)
+    # 0. Boot Linux with KVM and checkpoint at the start of the PARSEC ROI,
+    # once per guest setup. The KVM boot is not deterministic, so every
+    # campaign with the same setup restores the same checkpoint; that way
+    # the benchmark's execution only depends on what the campaign varies.
+    name, key = checkpoint_key(config)
+    checkpoint_dir = Path(runtime["checkpoint_dir"])
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    stored = checkpoint_dir / name
+    checkpoint = stored / "cpt"
+    # Campaigns started together with the same setup wait for one boot
+    # instead of racing on the same directories.
+    with open(checkpoint_dir / f"{name}.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (checkpoint / "m5.cpt").exists():
+            print(f"Reusing ROI checkpoint: {checkpoint}", flush=True)
+        else:
+            # Leftovers of an interrupted boot.
+            partial = stored.with_name(f"{name}.partial")
+            shutil.rmtree(stored, ignore_errors=True)
+            shutil.rmtree(partial, ignore_errors=True)
+            run_gem5(
+                "run_mesi_checkpoint.py",
+                partial / "boot",
+                ["--checkpoint-dir", str(partial / "cpt")],
+                runtime["checkpoint_timeout_seconds"],
+            )
+            (partial / "key.json").write_text(json.dumps(key, indent=2))
+            partial.rename(stored)
+            print(f"New ROI checkpoint: {checkpoint}", flush=True)
+    (output / "checkpoint").symlink_to(stored)
 
     # 1. Baseline restores the checkpoint and writes the ROI cycles and ticks.
     baseline_file = output / "baseline.json"
+    started = time.monotonic()
     run_gem5(
         "run_mesi_baseline.py",
         output / "baseline",
         ["--checkpoint", str(checkpoint), "--cycles-file", str(baseline_file)],
         runtime["baseline_timeout_seconds"],
     )
+    baseline_seconds = time.monotonic() - started
     baseline = json.loads(baseline_file.read_text())
     print(f"Baseline cycles: {baseline['cycles']}", flush=True)
+
+    # Hangs are detected by the tick limit below; the host timeout is only a
+    # safety net, so it must leave room for a run that reaches that limit
+    # while slowed down by the other parallel runs (2x margin).
+    fault_timeout = max(
+        runtime["fault_timeout_seconds"],
+        2 * runtime["fault_max_ticks_factor"] * baseline_seconds,
+    )
+    print(
+        f"Baseline took {baseline_seconds:.0f} s; fault run host timeout "
+        f"{fault_timeout:.0f} s",
+        flush=True,
+    )
 
     # 2. Call the ORIGINAL mask generator through its existing CLI.
     def kib(size):
@@ -173,7 +267,7 @@ def main():
                     "--max-ticks",
                     max_ticks,
                 ],
-                runtime["fault_timeout_seconds"],
+                fault_timeout,
             )
             status = "ok"
         except subprocess.TimeoutExpired:

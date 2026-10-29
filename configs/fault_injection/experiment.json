@@ -37,6 +37,7 @@
         "baseline_timeout_seconds": 3600,
         "fault_timeout_seconds": 3600,
         "fault_max_ticks_factor": 5.0,
-        "fault_limit": null
+        "fault_limit": null,
+        "checkpoint_dir": "checkpoints"
     }
 }
