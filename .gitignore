@@ -41,5 +41,6 @@ typings
 # Ignore generated fault-injection subdirectories
 configs/fault_injection/*/
 
-# Keep microbenchmarks
+# Keep microbenchmarks and the disk image recipe
 !configs/fault_injection/microbenchmarks/
+!configs/fault_injection/disk-image/
