@@ -40,16 +40,20 @@ def checkpoint_key(config):
     """Name and description of the guest setup a checkpoint captures.
 
     A rebuilt disk image or a changed guest run script (read before the
-    checkpoint) also needs a new boot.
+    checkpoint) also needs a new boot. The image is identified by name,
+    size and modification time, not by its location, so a copy made with
+    `rsync -a` on another machine maps to the same checkpoint.
     """
-    workload = config["workload"]
+    workload = {
+        k: v for k, v in config["workload"].items() if k != "disk_image"
+    }
     system = config["system"]
-    image = Path(workload["disk_image"]).expanduser().resolve()
+    image = Path(config["workload"]["disk_image"]).expanduser().resolve()
     key = {
         "workload": workload,
         "system": {k: system[k] for k in CHECKPOINT_SYSTEM_KEYS},
         "disk_image": {
-            "path": str(image),
+            "name": image.name,
             "size": image.stat().st_size,
             "mtime_ns": image.stat().st_mtime_ns,
         },

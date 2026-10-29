@@ -1,0 +1,43 @@
+{
+    "system": {
+        "l1i_size": "2KiB",
+        "l1i_assoc": 8,
+        "l1d_size": "2KiB",
+        "l1d_assoc": 8,
+        "l2_size": "4KiB",
+        "l2_assoc": 8,
+        "l2_banks": 1,
+        "cpu_type": "TIMING",
+        "isa": "X86",
+        "num_cores": 2,
+        "clk_freq": "3GHz",
+        "memory_size": "1GiB"
+    },
+    "workload": {
+        "benchmark": "blackscholes",
+        "size": "simmedium",
+        "kernel": "x86-linux-kernel-6.8.0-52-generic",
+        "kernel_version": "1.0.0",
+        "disk_image":
+            "~/gem5-disk-images/x86-ubuntu-24.04-parsec/output/x86-ubuntu-24.04-parsec"
+    },
+    "campaign": {
+        "target": "L1D",
+        "fault_type": "state",
+        "confidence": 0.95,
+        "error": 0.05,
+        "seed": 12345
+    },
+    "runtime": {
+        "gem5_binary": "~/gem5/build/X86_MESI/gem5.opt",
+        "fault_module_path": "~/gem5/configs/fault_injection",
+        "output_dir": "results",
+        "parallel_jobs": 60,
+        "checkpoint_timeout_seconds": 3600,
+        "baseline_timeout_seconds": 14400,
+        "fault_timeout_seconds": 3600,
+        "fault_max_ticks_factor": 5.0,
+        "fault_limit": null,
+        "checkpoint_dir": "checkpoints"
+    }
+}
