@@ -1,15 +1,33 @@
 """
-Full-system X86 board running a PARSEC benchmark from the gem5
-x86-parsec disk image. Shared by the checkpoint, baseline and fault
-scripts so that all of them build an identical system.
+Full-system X86 board running a PARSEC 3.0 benchmark from the Ubuntu
+24.04 PARSEC disk image built by disk-image/build-x86.sh. Shared by the
+checkpoint, baseline and fault scripts so that all of them build an
+identical system.
+
+The image's PARSEC hooks mark the ROI with hypercalls 4 (work begin) and
+5 (work end); the image sends hypercall 3 once the run script finishes.
 """
+
+from pathlib import Path
 
 from gem5.components.boards.x86_board import X86Board
 from gem5.components.memory.single_channel import SingleChannelDDR3_1600
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.components.processors.simple_processor import SimpleProcessor
 from gem5.isas import ISA
-from gem5.resources.resource import obtain_resource
+from gem5.resources.resource import (
+    DiskImageResource,
+    obtain_resource,
+)
+
+# Kernel arguments of gem5's x86-ubuntu-24.04-boot-with-systemd workload;
+# the root file system is on the image's second partition.
+KERNEL_ARGS = [
+    "earlyprintk=ttyS0",
+    "console=ttyS0",
+    "lpj=7999923",
+    "root=/dev/sda2",
+]
 
 
 def build_board(config, cpu_type, cache_hierarchy):
@@ -38,13 +56,16 @@ def build_board(config, cpu_type, cache_hierarchy):
 
 
 def checkpoint_tick(checkpoint):
-    """Tick at which the checkpoint was taken ([Globals] curTick)."""
+    """Tick at which the checkpoint was taken (globals section curTick).
+
+    gem5 v26 renamed the section from [Globals] to [root.globals].
+    """
     in_globals = False
     with open(f"{checkpoint}/m5.cpt") as cpt:
         for line in cpt:
             line = line.strip()
             if line.startswith("["):
-                in_globals = line == "[Globals]"
+                in_globals = line in ("[root.globals]", "[Globals]")
             elif in_globals and line.startswith("curTick="):
                 return int(line.split("=", 1)[1])
     raise ValueError(f"No curTick in {checkpoint}/m5.cpt")
@@ -53,15 +74,13 @@ def checkpoint_tick(checkpoint):
 def set_parsec_workload(board, config, checkpoint=None):
     workload = config["workload"]
 
-    # Executed by the image's init script through `m5 readfile`.
-    # The gcc-hooks build emits m5 workbegin/workend around the ROI.
+    # Run by the image's after_boot.sh, as the gem5 user, via readfile.
     command = (
-        "cd /home/gem5/parsec-benchmark;"
-        "source env.sh;"
+        "#!/bin/bash\n"
+        "cd /home/gem5/parsec-benchmark\n"
+        "source env.sh\n"
         f"parsecmgmt -a run -p {workload['benchmark']} -c gcc-hooks "
-        f"-i {workload['size']} -n {config['system']['num_cores']};"
-        "sleep 5;"
-        "m5 exit;"
+        f"-i {workload['size']} -n {config['system']['num_cores']}\n"
     )
 
     board.set_kernel_disk_workload(
@@ -69,10 +88,11 @@ def set_parsec_workload(board, config, checkpoint=None):
             workload["kernel"],
             resource_version=workload["kernel_version"],
         ),
-        disk_image=obtain_resource(
-            workload["disk_image"],
-            resource_version=workload["disk_image_version"],
+        disk_image=DiskImageResource(
+            local_path=str(Path(workload["disk_image"]).expanduser()),
+            root_partition="2",
         ),
+        kernel_args=KERNEL_ARGS,
         readfile_contents=command,
         checkpoint=checkpoint,
     )

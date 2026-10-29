@@ -20,8 +20,9 @@ from gem5.components.cachehierarchies.ruby.mesi_two_level_cache_hierarchy import
 )
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
-from gem5.simulate.exit_event import ExitEvent
+from gem5.simulate.exit_handler import WorkEndExitHandler
 from gem5.simulate.simulator import Simulator
+from gem5.utils.override import overrides
 from gem5.utils.requires import requires
 
 parser = argparse.ArgumentParser()
@@ -57,16 +58,19 @@ set_parsec_workload(board, config, checkpoint=args.checkpoint)
 reached_roi_end = False
 
 
-def on_workend():
-    global reached_roi_end
-    reached_roi_end = True
-    yield True
+class StopAtROIEnd(WorkEndExitHandler):
+    @overrides(WorkEndExitHandler)
+    def _process(self, simulator):
+        global reached_roi_end
+        reached_roi_end = True
+        super()._process(simulator)
+
+    @overrides(WorkEndExitHandler)
+    def _exit_simulation(self):
+        return True
 
 
-simulator = Simulator(
-    board=board,
-    on_exit_event={ExitEvent.WORKEND: on_workend()},
-)
+simulator = Simulator(board=board)
 simulator.run()
 
 if not reached_roi_end:

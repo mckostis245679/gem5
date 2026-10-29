@@ -15,8 +15,9 @@ from parsec_fs import (
 from gem5.coherence_protocol import CoherenceProtocol
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
-from gem5.simulate.exit_event import ExitEvent
+from gem5.simulate.exit_handler import WorkEndExitHandler
 from gem5.simulate.simulator import Simulator
+from gem5.utils.override import overrides
 from gem5.utils.requires import requires
 
 
@@ -91,15 +92,18 @@ board = build_board(
 set_parsec_workload(board, config, checkpoint=args.checkpoint)
 
 
-def on_workend():
-    print("ROI finished")
-    yield True
+class StopAtROIEnd(WorkEndExitHandler):
+    @overrides(WorkEndExitHandler)
+    def _process(self, simulator):
+        print("ROI finished")
+        super()._process(simulator)
+
+    @overrides(WorkEndExitHandler)
+    def _exit_simulation(self):
+        return True
 
 
-simulator = Simulator(
-    board=board,
-    on_exit_event={ExitEvent.WORKEND: on_workend()},
-)
+simulator = Simulator(board=board)
 if args.max_ticks is not None:
     simulator.set_max_ticks(args.max_ticks)
 simulator.run()

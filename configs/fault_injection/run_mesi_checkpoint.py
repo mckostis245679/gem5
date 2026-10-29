@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Boot Linux with KVM cores and take a checkpoint when the PARSEC
-benchmark reaches its ROI (m5 workbegin). The baseline and the
+benchmark reaches its ROI (work-begin hypercall). The baseline and the
 fault runs restore from this checkpoint.
 """
 
@@ -14,16 +14,15 @@ from parsec_fs import (
     set_parsec_workload,
 )
 
-import m5
-
 from gem5.coherence_protocol import CoherenceProtocol
 from gem5.components.cachehierarchies.ruby.mesi_two_level_cache_hierarchy import (
     MESITwoLevelCacheHierarchy,
 )
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
-from gem5.simulate.exit_event import ExitEvent
+from gem5.simulate.exit_handler import WorkBeginExitHandler
 from gem5.simulate.simulator import Simulator
+from gem5.utils.override import overrides
 from gem5.utils.requires import requires
 
 parser = argparse.ArgumentParser()
@@ -57,18 +56,23 @@ set_parsec_workload(board, config)
 reached_roi = False
 
 
-def on_workbegin():
-    global reached_roi
-    reached_roi = True
-    print(f"ROI begins at tick {m5.curTick()}; saving checkpoint")
-    simulator.save_checkpoint(args.checkpoint_dir)
-    yield True
+class CheckpointAtROIBegin(WorkBeginExitHandler):
+    @overrides(WorkBeginExitHandler)
+    def _process(self, simulator):
+        global reached_roi
+        reached_roi = True
+        print(
+            f"ROI begins at tick {simulator.get_current_tick()}; "
+            "saving checkpoint"
+        )
+        simulator.save_checkpoint(args.checkpoint_dir)
+
+    @overrides(WorkBeginExitHandler)
+    def _exit_simulation(self):
+        return True
 
 
-simulator = Simulator(
-    board=board,
-    on_exit_event={ExitEvent.WORKBEGIN: on_workbegin()},
-)
+simulator = Simulator(board=board)
 simulator.run()
 
 if not reached_roi:

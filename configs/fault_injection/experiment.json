@@ -16,10 +16,10 @@
     "workload": {
         "benchmark": "blackscholes",
         "size": "simsmall",
-        "kernel": "x86-linux-kernel-4.19.83",
+        "kernel": "x86-linux-kernel-6.8.0-52-generic",
         "kernel_version": "1.0.0",
-        "disk_image": "x86-parsec",
-        "disk_image_version": "1.0.0"
+        "disk_image":
+            "~/gem5-disk-images/x86-ubuntu-24.04-parsec/output/x86-ubuntu-24.04-parsec"
     },
     "campaign": {
         "target": "L1D",
