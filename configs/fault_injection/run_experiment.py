@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+from fault_outcomes import summarize
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -132,12 +134,19 @@ def main():
         command += ["--seed", str(campaign["seed"])]
     subprocess.run(command, check=True)
     faults = json.loads(campaign_file.read_text())["faults"]
+    # Optional cap for quick smoke tests; it breaks the campaign's
+    # statistical sample size, so leave it null for real campaigns.
+    if runtime.get("fault_limit"):
+        faults = faults[: runtime["fault_limit"]]
 
     # 3. Each free worker takes the next fault and launches a separate gem5 process.
-    # Ticks are absolute, and the ROI begins at the checkpoint tick.
+    # Ticks are absolute, and the ROI begins at the checkpoint tick. Fault
+    # runs continue until the benchmark finishes, so the limit scales the
+    # baseline's whole run, not just its ROI.
     roi_start = baseline["roi_start_tick"]
     max_ticks = str(
-        roi_start + int(baseline["ticks"] * runtime["fault_max_ticks_factor"])
+        roi_start
+        + int(baseline["end_ticks"] * runtime["fault_max_ticks_factor"])
     )
 
     def run_fault(item):
@@ -167,15 +176,24 @@ def main():
                 runtime["fault_timeout_seconds"],
             )
             status = "ok"
-        except (subprocess.SubprocessError, OSError) as error:
-            status = str(error)
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+        except subprocess.CalledProcessError as error:
+            status = f"exit {error.returncode}"
+        except OSError as error:
+            status = f"error {error}"
         print(f"Fault {index}: {status}", flush=True)
         return {"index": index, "status": status}
 
     with ThreadPoolExecutor(max_workers=runtime["parallel_jobs"]) as pool:
         results = list(pool.map(run_fault, enumerate(faults)))
     (output / "results.json").write_text(json.dumps(results, indent=2))
-    return 0 if all(result["status"] == "ok" for result in results) else 1
+
+    # 4. Classify every run (masked/sdc/crash/hang), write fault_summary.csv
+    # and outcome_distribution.png. A failing gem5 run is an outcome here,
+    # not an error of the campaign.
+    summarize(output)
+    return 0
 
 
 if __name__ == "__main__":

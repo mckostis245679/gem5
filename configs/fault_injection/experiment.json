@@ -35,7 +35,8 @@
         "parallel_jobs": 4,
         "checkpoint_timeout_seconds": 3600,
         "baseline_timeout_seconds": 3600,
-        "fault_timeout_seconds": 600,
-        "fault_max_ticks_factor": 5.0
+        "fault_timeout_seconds": 3600,
+        "fault_max_ticks_factor": 5.0,
+        "fault_limit": null
     }
 }

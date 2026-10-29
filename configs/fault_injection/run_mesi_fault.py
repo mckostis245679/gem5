@@ -9,15 +9,16 @@ from fault_injecting_mesi import (
 )
 from parsec_fs import (
     build_board,
+    run_to_script_end,
     set_parsec_workload,
 )
+
+import m5
 
 from gem5.coherence_protocol import CoherenceProtocol
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
-from gem5.simulate.exit_handler import WorkEndExitHandler
 from gem5.simulate.simulator import Simulator
-from gem5.utils.override import overrides
 from gem5.utils.requires import requires
 
 
@@ -31,7 +32,9 @@ def load_fault(path):
 parser = argparse.ArgumentParser(
     description=(
         "Restore the PARSEC ROI checkpoint on a MESI Two Level "
-        "full-system board and inject a fault loaded from JSON."
+        "full-system board, inject a fault loaded from JSON and run "
+        "until the benchmark finishes. run_status.json in the output "
+        "directory records how the run ended."
     )
 )
 
@@ -92,22 +95,11 @@ board = build_board(
 set_parsec_workload(board, config, checkpoint=args.checkpoint)
 
 
-class StopAtROIEnd(WorkEndExitHandler):
-    @overrides(WorkEndExitHandler)
-    def _process(self, simulator):
-        print("ROI finished")
-        super()._process(simulator)
-
-    @overrides(WorkEndExitHandler)
-    def _exit_simulation(self):
-        return True
-
-
 simulator = Simulator(board=board)
-if args.max_ticks is not None:
-    simulator.set_max_ticks(args.max_ticks)
-simulator.run()
-
+state = run_to_script_end(simulator, args.max_ticks)
+(Path(m5.options.outdir) / "run_status.json").write_text(
+    json.dumps(state, indent=2)
+)
 
 print(
     "Exiting at tick {} because: {}".format(

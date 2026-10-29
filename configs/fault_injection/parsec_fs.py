@@ -5,7 +5,10 @@ checkpoint, baseline and fault scripts so that all of them build an
 identical system.
 
 The image's PARSEC hooks mark the ROI with hypercalls 4 (work begin) and
-5 (work end); the image sends hypercall 3 once the run script finishes.
+5 (work end). Once the benchmark exits, the run script prints a SHA-256 of
+every file the benchmark wrote between the FI_OUTPUT_FILES_* markers on
+the console, which fault_outcomes.py compares against the baseline, and
+ends the simulation with hypercall 3.
 """
 
 from pathlib import Path
@@ -19,6 +22,11 @@ from gem5.resources.resource import (
     DiskImageResource,
     obtain_resource,
 )
+from gem5.simulate.exit_handler import (
+    AfterBootScriptExitHandler,
+    WorkEndExitHandler,
+)
+from gem5.utils.override import overrides
 
 # Kernel arguments of gem5's x86-ubuntu-24.04-boot-with-systemd workload;
 # the root file system is on the image's second partition.
@@ -28,6 +36,36 @@ KERNEL_ARGS = [
     "lpj=7999923",
     "root=/dev/sda2",
 ]
+
+# Run by the image's after_boot.sh, as the gem5 user, via readfile; it is
+# read before the ROI checkpoint, so changing it needs a new checkpoint.
+# parsecmgmt runs the benchmark through fi_submit.sh (-s), which prints the
+# output fingerprint as soon as the benchmark exits and then ends the
+# simulation, skipping parsecmgmt's post-run work on the slow detailed CPU.
+# fi_submit.sh writes to the console directly because parsecmgmt pipes the
+# benchmark's output through tee. The input list is built before the ROI.
+RUN_SCRIPT = r"""#!/bin/bash
+cd /home/gem5/parsec-benchmark
+source env.sh
+console=$(readlink -f /proc/$$/fd/1)
+echo benchmark.out > /tmp/inputs.lst
+input_tar=$(ls pkgs/*/@BENCH@/inputs/input_@SIZE@.tar 2>/dev/null)
+[ -n "$input_tar" ] && tar tf "$input_tar" | sed 's|^\./||' >> /tmp/inputs.lst
+cat > /tmp/fi_submit.sh <<EOF
+#!/bin/bash
+exec >> $console 2>&1
+time "\$@"
+echo FI_PROGRAM_END
+echo FI_OUTPUT_FILES_BEGIN
+find . -type f | sed 's|^\./||' | sort | grep -vxFf /tmp/inputs.lst \
+    | xargs -r -d '\n' sha256sum
+echo FI_OUTPUT_FILES_END
+gem5-bridge hypercall 3
+EOF
+chmod +x /tmp/fi_submit.sh
+parsecmgmt -a run -p @BENCH@ -c gcc-hooks -i @SIZE@ -n @THREADS@ \
+    -s /tmp/fi_submit.sh
+"""
 
 
 def build_board(config, cpu_type, cache_hierarchy):
@@ -73,14 +111,14 @@ def checkpoint_tick(checkpoint):
 
 def set_parsec_workload(board, config, checkpoint=None):
     workload = config["workload"]
+    bench = workload["benchmark"]
+    size = workload["size"]
 
     # Run by the image's after_boot.sh, as the gem5 user, via readfile.
     command = (
-        "#!/bin/bash\n"
-        "cd /home/gem5/parsec-benchmark\n"
-        "source env.sh\n"
-        f"parsecmgmt -a run -p {workload['benchmark']} -c gcc-hooks "
-        f"-i {workload['size']} -n {config['system']['num_cores']}\n"
+        RUN_SCRIPT.replace("@BENCH@", bench)
+        .replace("@SIZE@", size)
+        .replace("@THREADS@", str(config["system"]["num_cores"]))
     )
 
     board.set_kernel_disk_workload(
@@ -96,3 +134,32 @@ def set_parsec_workload(board, config, checkpoint=None):
         readfile_contents=command,
         checkpoint=checkpoint,
     )
+
+
+def run_to_script_end(simulator, max_ticks=None):
+    """Run a restored simulation until the guest's run script finishes.
+
+    The benchmark writes its output after the ROI, so the run continues
+    past the work-end hypercall (stats are still dumped there) until the
+    run script's hypercall 3. Returns the ROI end tick (None if the ROI
+    never finished), whether the run script finished, and the final tick.
+    """
+    state = {"roi_end_tick": None, "script_done": False}
+
+    class RecordROIEnd(WorkEndExitHandler):
+        @overrides(WorkEndExitHandler)
+        def _process(self, simulator):
+            state["roi_end_tick"] = simulator.get_current_tick()
+            super()._process(simulator)
+
+    class RecordScriptEnd(AfterBootScriptExitHandler):
+        @overrides(AfterBootScriptExitHandler)
+        def _process(self, simulator):
+            state["script_done"] = True
+
+    if max_ticks is not None:
+        simulator.set_max_ticks(max_ticks)
+    simulator.run()
+    state["final_tick"] = simulator.get_current_tick()
+    state["max_ticks"] = max_ticks
+    return state

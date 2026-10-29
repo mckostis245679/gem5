@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Restore the ROI checkpoint and run the PARSEC ROI fault-free on the
-configured (timing) CPU, recording how long the ROI takes.
+Restore the ROI checkpoint and run the PARSEC benchmark fault-free on the
+configured (timing) CPU, recording how long the ROI takes. The run
+continues until the benchmark finishes so that its console output (the
+golden output for fault_outcomes.py) is complete.
 """
 
 import argparse
@@ -11,6 +13,7 @@ from pathlib import Path
 from parsec_fs import (
     build_board,
     checkpoint_tick,
+    run_to_script_end,
     set_parsec_workload,
 )
 
@@ -20,9 +23,7 @@ from gem5.components.cachehierarchies.ruby.mesi_two_level_cache_hierarchy import
 )
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
-from gem5.simulate.exit_handler import WorkEndExitHandler
 from gem5.simulate.simulator import Simulator
-from gem5.utils.override import overrides
 from gem5.utils.requires import requires
 
 parser = argparse.ArgumentParser()
@@ -55,31 +56,20 @@ board = build_board(
 )
 set_parsec_workload(board, config, checkpoint=args.checkpoint)
 
-reached_roi_end = False
-
-
-class StopAtROIEnd(WorkEndExitHandler):
-    @overrides(WorkEndExitHandler)
-    def _process(self, simulator):
-        global reached_roi_end
-        reached_roi_end = True
-        super()._process(simulator)
-
-    @overrides(WorkEndExitHandler)
-    def _exit_simulation(self):
-        return True
-
-
 simulator = Simulator(board=board)
-simulator.run()
+state = run_to_script_end(simulator)
 
-if not reached_roi_end:
-    raise RuntimeError("Baseline ROI did not finish; inspect the baseline log")
+if state["roi_end_tick"] is None or not state["script_done"]:
+    raise RuntimeError(
+        "Baseline did not finish the ROI and the run script; "
+        "inspect the baseline log"
+    )
 
 # The ROI starts at the checkpoint tick, so all ROI-relative values
 # are measured from there.
 roi_start_tick = checkpoint_tick(args.checkpoint)
-ticks = int(simulator.get_current_tick()) - roi_start_tick
+ticks = state["roi_end_tick"] - roi_start_tick
+end_ticks = state["final_tick"] - roi_start_tick
 period = int(board.get_clock_domain().clock[0].period.getValue())
 cycles = (ticks + period - 1) // period
 
@@ -88,6 +78,7 @@ Path(args.cycles_file).write_text(
         {
             "cycles": cycles,
             "ticks": ticks,
+            "end_ticks": end_ticks,
             "clock_period_ticks": period,
             "roi_start_tick": roi_start_tick,
         }
