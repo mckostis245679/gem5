@@ -50,7 +50,7 @@ failures=0
 CASES=(
     "l1d_state|RUBY_FAULT_INJECTED|--target L1D --fault-type state --state I"
     "l1d_bitflip|RUBY_DATA_FAULT_INJECTED|--target L1D --fault-type data_bitflip --bit 3"
-    "l2_state|RUBY_FAULT_INJECTED|--target L2 --fault-type state --state SS"
+    "l2_state|RUBY_FAULT_INJECTED|--target L2 --fault-type state --state M"
 )
 
 for case in "${CASES[@]}"; do

@@ -19,6 +19,7 @@ def build_board(config, cpu_type, cache_hierarchy):
         cpu_type=cpu_type,
         isa=ISA.X86,
         num_cores=system["num_cores"],
+        clk_freq=system["clk_freq"],
     )
     if cpu_type == CPUTypes.KVM:
         # Host perf counters are usually locked down

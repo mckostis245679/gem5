@@ -84,7 +84,7 @@ else:
 board = SimpleBoard(
     clk_freq="3GHz",
     processor=SimpleProcessor(
-        cpu_type=CPUTypes.TIMING, isa=ISA.X86, num_cores=2
+        cpu_type=CPUTypes.TIMING, isa=ISA.X86, num_cores=2, clk_freq="3GHz"
     ),
     memory=SingleChannelDDR3_1600(size="1GiB"),
     cache_hierarchy=cache_hierarchy,
