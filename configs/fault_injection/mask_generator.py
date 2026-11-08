@@ -155,6 +155,16 @@ def main():
     )
 
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--num-faults",
+        type=int,
+        default=None,
+        help=(
+            "Inject exactly this many faults instead of the sample size "
+            "required by --error; the margin of error this sample achieves "
+            "at --confidence is reported instead."
+        ),
+    )
 
     parser.add_argument(
         "--output", type=Path, default=Path("fault_campaign.json")
@@ -174,6 +184,8 @@ def main():
         parser.error("--error must be between 0 and 1")
     if not 0.0 < args.confidence < 1.0:
         parser.error("--confidence must be between 0 and 1")
+    if args.num_faults is not None and args.num_faults <= 0:
+        parser.error("--num-faults must be > 0")
 
     try:
         _, l1_lines_per_core, l1_sets = cache_geometry(
@@ -210,6 +222,13 @@ def main():
         confidence=args.confidence,
         p=0.5,
     )
+    error = args.error
+    if args.num_faults is not None:
+        if args.num_faults > N:
+            parser.error(f"--num-faults exceeds the population size {N}")
+        n = args.num_faults
+        # Margin of error of n samples, with the finite-population correction.
+        error = t * math.sqrt(0.25 / n * (N - n) / (N - 1)) if N > 1 else 0.0
 
     rng = random.Random(args.seed)  # Mersenne Twister
 
@@ -264,7 +283,12 @@ def main():
             "target": args.target,
             "population_size_N": N,
             "required_injections_n": n,
-            "target_error_e": args.error,
+            "target_error_e": error,
+            "sample_size": (
+                "fixed by --num-faults"
+                if args.num_faults is not None
+                else "required for target_error_e"
+            ),
             "confidence": args.confidence,
             "critical_value_t": t,
             "p": 0.5,
@@ -289,7 +313,8 @@ def main():
     print(f"Eligible fault sites per cycle: {sites_per_cycle}")
     print(f"Population size N: {N}")
     print(f"Critical value t: {t:.6f}")
-    print(f"Required injections n: {n}")
+    print(f"Injections n: {n}")
+    print(f"Margin of error e: {error:.4f} at confidence {args.confidence}")
     print(f"Saved campaign to: {args.output}")
 
 
