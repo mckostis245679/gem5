@@ -4,6 +4,10 @@ from gem5.components.cachehierarchies.ruby.mesi_two_level_cache_hierarchy import
     MESITwoLevelCacheHierarchy,
 )
 
+# Custom ExitHandler hypercall ID with which the injector ends a run whose
+# fault cannot have an effect (see run_to_script_end in parsec_fs.py).
+MASKED_EXIT_HYPERCALL = 4096
+
 
 class FaultInjectingMESITwoLevel(MESITwoLevelCacheHierarchy):
     """
@@ -67,6 +71,8 @@ class FaultInjectingMESITwoLevel(MESITwoLevelCacheHierarchy):
                 0,
             ),
             cache_line_size=board.get_cache_line_size(),
+            exit_if_masked=True,
+            masked_exit_hypercall_id=MASKED_EXIT_HYPERCALL,
         )
 
         # Make the injector a child of RubySystem so it is

@@ -7,7 +7,10 @@ Classify the fault runs of a full-system PARSEC campaign and summarise them.
 Each fault run is compared with the campaign's fault-free baseline and
 classified as:
 
-    masked  the benchmark finished and its output matches the baseline
+    masked  the benchmark finished and its output matches the baseline, or
+            the injector ended the run because its fault could not have an
+            effect (no line or an Invalid line in the selected slot, or the
+            line already had the requested state)
     sdc     the benchmark finished but its output differs (silent data
             corruption)
     crash   gem5 stopped with a panic/fatal (e.g. an invalid coherence
@@ -137,6 +140,8 @@ def classify(folder, golden, host_status):
         return "hang", "host timeout"
     if host_status != "ok":
         return "crash", f"simulator: gem5 {host_status}"
+    if state.get("masked_exit"):
+        return "masked", f"stopped at injection: {state['masked_exit']}"
     error = first_match(KERNEL_ERROR, console_lines)
     if error:
         return "crash", f"kernel: {error}"
@@ -235,7 +240,10 @@ def summarize(campaign_dir):
         )
     skipped = sum(row["injected"] == "no" for row in rows)
     if skipped:
-        print(f"({skipped} masked runs are faults the injector skipped)")
+        print(
+            f"({skipped} masked runs are faults the injector skipped; "
+            "these runs end at the injection)"
+        )
     print(f"Wrote {campaign_dir / 'fault_summary.csv'}")
     print(f"Wrote {campaign_dir / 'outcome_distribution.png'}")
     return rows

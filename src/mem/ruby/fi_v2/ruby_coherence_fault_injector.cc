@@ -1,9 +1,13 @@
 #include "mem/ruby/fi_v2/ruby_coherence_fault_injector.hh"
 
 #include <cstdint>
+#include <limits>
+#include <sstream>
 #include <string>
 
 #include "base/logging.hh"
+#include "base/trace.hh"
+#include "debug/RubyFaultCache.hh"
 #include "mem/ruby/common/DataBlock.hh"
 #include "mem/ruby/protocol/MESI_Two_Level/L1Cache_Entry.hh"
 #include "mem/ruby/protocol/MESI_Two_Level/L1Cache_State.hh"
@@ -11,11 +15,8 @@
 #include "mem/ruby/protocol/MESI_Two_Level/L2Cache_State.hh"
 #include "mem/ruby/slicc_interface/AbstractCacheEntry.hh"
 #include "mem/ruby/structures/CacheMemory.hh"
-#include <limits>
-#include <sstream>
+#include "sim/sim_exit.hh"
 
-#include "base/trace.hh"
-#include "debug/RubyFaultCache.hh"
 namespace gem5
 {
 
@@ -83,27 +84,23 @@ parseL2State(const std::string &state)
 
 } // anonymous namespace
 
-RubyCoherenceFaultInjector::RubyCoherenceFaultInjector(
-    const Params &p
-) :
-    SimObject(p),
-    targetCache(p.target_cache),
-    targetLevel(p.target_level),
-    targetIdx(p.target_idx),
-    injectionTick(p.injection_tick),
-    faultType(p.fault_type),
-    newState(p.new_state),
-    bitPosition(p.bit_position),
-    cacheLineSize(p.cache_line_size),
-    injectionEvent(
-        [this] { inject(); },
-        name() + ".injection_event"
-    ),
-    postInjectionDumpDelay(p.post_injection_dump_delay),
-    postInjectionDumpEvent(
-        [this] { printTargetCache("delayed_after_injection"); },
-        name() + ".post_injection_dump_event"
-    )
+RubyCoherenceFaultInjector::RubyCoherenceFaultInjector(const Params &p)
+    : SimObject(p),
+      targetCache(p.target_cache),
+      targetLevel(p.target_level),
+      targetIdx(p.target_idx),
+      injectionTick(p.injection_tick),
+      faultType(p.fault_type),
+      newState(p.new_state),
+      bitPosition(p.bit_position),
+      cacheLineSize(p.cache_line_size),
+      exitIfMasked(p.exit_if_masked),
+      maskedExitHypercallId(p.masked_exit_hypercall_id),
+      injectionEvent([this] { inject(); }, name() + ".injection_event"),
+      postInjectionDumpDelay(p.post_injection_dump_delay),
+      postInjectionDumpEvent(
+          [this] { printTargetCache("delayed_after_injection"); },
+          name() + ".post_injection_dump_event")
 {
     fatal_if(
         targetCache == nullptr,
@@ -208,17 +205,7 @@ RubyCoherenceFaultInjector::printTargetCache(const char *phase)
             continue;
         }
 
-        std::string state = "unknown";
-
-        if (targetLevel == "L1") {
-            if (auto *l1 = dynamic_cast<L1Cache_Entry *>(entry)) {
-                state = L1Cache_State_to_string(l1->getCacheState());
-            }
-        } else {
-            if (auto *l2 = dynamic_cast<L2Cache_Entry *>(entry)) {
-                state = L2Cache_State_to_string(l2->getCacheState());
-            }
-        }
+        const std::string state = entryStateName(entry);
 
         std::ostringstream data;
         entry->getDataBlk().print(data);
@@ -242,7 +229,40 @@ RubyCoherenceFaultInjector::printTargetCache(const char *phase)
         targetCache->name().c_str());
 }
 
+std::string
+RubyCoherenceFaultInjector::entryStateName(AbstractCacheEntry *entry) const
+{
+    if (targetLevel == "L1") {
+        if (auto *l1 = dynamic_cast<L1Cache_Entry *>(entry)) {
+            return L1Cache_State_to_string(l1->getCacheState());
+        }
+    } else {
+        if (auto *l2 = dynamic_cast<L2Cache_Entry *>(entry)) {
+            return L2Cache_State_to_string(l2->getCacheState());
+        }
+    }
 
+    return "unknown";
+}
+
+/*
+ * The selected fault cannot change what the program computes, so the rest
+ * of the run would only reproduce the baseline: end the simulation here.
+ * The ExitHandler registered for maskedExitHypercallId records the reason.
+ */
+void
+RubyCoherenceFaultInjector::endMaskedRun(const std::string &reason)
+{
+    if (!exitIfMasked) {
+        return;
+    }
+
+    inform("RUBY_FAULT_MASKED_EXIT tick=%llu cache=%s reason=%s",
+           static_cast<unsigned long long>(curTick()),
+           targetCache->name().c_str(), reason.c_str());
+
+    exitSimulationLoopNow(maskedExitHypercallId, {{"reason", reason}});
+}
 
 void
 RubyCoherenceFaultInjector::inject()
@@ -279,6 +299,7 @@ RubyCoherenceFaultInjector::performInjection()
             targetIdx,
             numBlocks
         );
+        endMaskedRun("idx_out_of_range");
         return;
     }
 
@@ -292,9 +313,8 @@ RubyCoherenceFaultInjector::performInjection()
         targetCache->getEntryAtIdx(targetIdx);
 
     /*
-     * A nullptr is the only slot condition that prevents injection:
-     * no AbstractCacheEntry object exists, so there is no DataBlock or
-     * coherence-state field to corrupt.
+     * A nullptr means no AbstractCacheEntry object exists, so there is no
+     * DataBlock or coherence-state field to corrupt.
      */
     if (baseEntry == nullptr) {
         warn(
@@ -306,6 +326,7 @@ RubyCoherenceFaultInjector::performInjection()
             faultType.c_str(),
             targetIdx
         );
+        endMaskedRun("selected_idx_null_entry");
         return;
     }
 
@@ -327,6 +348,27 @@ RubyCoherenceFaultInjector::performInjection()
         static_cast<unsigned long long>(lineAddress),
         static_cast<int>(baseEntry->m_Permission)
     );
+
+    /*
+     * An Invalid or NotPresent line holds no data the program can read:
+     * the next access to the address misses and refills the slot. With
+     * exit_if_masked, a fault on such a line is treated as masked; this
+     * includes state faults that would make the line valid again.
+     */
+    const AccessPermission permission = baseEntry->m_Permission;
+    if (exitIfMasked && (permission == AccessPermission_Invalid ||
+                         permission == AccessPermission_NotPresent)) {
+        warn("RUBY_FAULT_NOT_INJECTED "
+             "tick=%llu cache=%s fault_type=%s "
+             "reason=selected_idx_invalid_line idx=%u line=%#llx "
+             "old_state=%s new_state=%s",
+             static_cast<unsigned long long>(curTick()),
+             targetCache->name().c_str(), faultType.c_str(), targetIdx,
+             static_cast<unsigned long long>(lineAddress),
+             entryStateName(baseEntry).c_str(), newState.c_str());
+        endMaskedRun("selected_idx_invalid_line");
+        return;
+    }
 
     if (faultType == "data_bitflip") {
         injectDataBitFlip(baseEntry, lineAddress);
@@ -366,6 +408,7 @@ RubyCoherenceFaultInjector::performInjection()
                 static_cast<unsigned long long>(lineAddress),
                 newState.c_str()
             );
+            endMaskedRun("selected_idx_already_in_requested_state");
             return;
         }
 
@@ -398,6 +441,7 @@ RubyCoherenceFaultInjector::performInjection()
                 static_cast<unsigned long long>(lineAddress),
                 newState.c_str()
             );
+            endMaskedRun("selected_idx_already_in_requested_state");
             return;
         }
 

@@ -24,6 +24,7 @@ from gem5.resources.resource import (
 )
 from gem5.simulate.exit_handler import (
     AfterBootScriptExitHandler,
+    ExitHandler,
     WorkEndExitHandler,
 )
 from gem5.utils.override import overrides
@@ -136,15 +137,19 @@ def set_parsec_workload(board, config, checkpoint=None):
     )
 
 
-def run_to_script_end(simulator, max_ticks=None):
+def run_to_script_end(simulator, max_ticks=None, masked_exit_hypercall=None):
     """Run a restored simulation until the guest's run script finishes.
 
     The benchmark writes its output after the ROI, so the run continues
     past the work-end hypercall (stats are still dumped there) until the
     run script's hypercall 3. Returns the ROI end tick (None if the ROI
     never finished), whether the run script finished, and the final tick.
+
+    With masked_exit_hypercall, the fault injector may end the run at the
+    injection tick instead, when its fault cannot have an effect; the state
+    then records its reason as masked_exit.
     """
-    state = {"roi_end_tick": None, "script_done": False}
+    state = {"roi_end_tick": None, "script_done": False, "masked_exit": None}
 
     class RecordROIEnd(WorkEndExitHandler):
         @overrides(WorkEndExitHandler)
@@ -156,6 +161,17 @@ def run_to_script_end(simulator, max_ticks=None):
         @overrides(AfterBootScriptExitHandler)
         def _process(self, simulator):
             state["script_done"] = True
+
+    if masked_exit_hypercall is not None:
+
+        class RecordMaskedExit(ExitHandler, hypercall=masked_exit_hypercall):
+            @overrides(ExitHandler)
+            def _process(self, simulator):
+                state["masked_exit"] = self._payload.get("reason", "unknown")
+
+            @overrides(ExitHandler)
+            def _exit_simulation(self):
+                return True
 
     if max_ticks is not None:
         simulator.set_max_ticks(max_ticks)

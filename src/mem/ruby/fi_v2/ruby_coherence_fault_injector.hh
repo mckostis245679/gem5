@@ -29,6 +29,8 @@ class RubyCoherenceFaultInjector : public SimObject
   private:
     void printTargetCache(const char *phase);
     void performInjection();
+    std::string entryStateName(AbstractCacheEntry *entry) const;
+    void endMaskedRun(const std::string &reason);
 
     const Tick postInjectionDumpDelay;
     EventFunctionWrapper postInjectionDumpEvent;
@@ -57,6 +59,8 @@ class RubyCoherenceFaultInjector : public SimObject
     const Tick injectionTick;
     const std::string newState;
     const unsigned cacheLineSize;
+    const bool exitIfMasked;
+    const uint64_t maskedExitHypercallId;
 
     EventFunctionWrapper injectionEvent;
 };

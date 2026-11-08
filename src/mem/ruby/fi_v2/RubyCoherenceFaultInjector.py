@@ -46,3 +46,15 @@ class RubyCoherenceFaultInjector(SimObject):
         64,
         "Ruby cache-line size in bytes",
     )
+
+    exit_if_masked = Param.Bool(
+        False,
+        "End the simulation at the injection tick when the fault cannot "
+        "have an effect: the selected slot holds no entry or an Invalid/"
+        "NotPresent line, or the line already has the requested state",
+    )
+    masked_exit_hypercall_id = Param.UInt64(
+        4096,
+        "Custom ExitHandler hypercall ID of that exit; its payload carries "
+        "the reason",
+    )

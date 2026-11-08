@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from fault_injecting_mesi import (
+    MASKED_EXIT_HYPERCALL,
     FaultInjectingMESITwoLevel,
 )
 from parsec_fs import (
@@ -33,7 +34,8 @@ parser = argparse.ArgumentParser(
     description=(
         "Restore the PARSEC ROI checkpoint on a MESI Two Level "
         "full-system board, inject a fault loaded from JSON and run "
-        "until the benchmark finishes. run_status.json in the output "
+        "until the benchmark finishes, or until the injection when the "
+        "fault cannot have an effect. run_status.json in the output "
         "directory records how the run ended."
     )
 )
@@ -96,7 +98,7 @@ set_parsec_workload(board, config, checkpoint=args.checkpoint)
 
 
 simulator = Simulator(board=board)
-state = run_to_script_end(simulator, args.max_ticks)
+state = run_to_script_end(simulator, args.max_ticks, MASKED_EXIT_HYPERCALL)
 (Path(m5.options.outdir) / "run_status.json").write_text(
     json.dumps(state, indent=2)
 )
