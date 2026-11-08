@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""python3 run_experiment.py [experiment.json]"""
+"""python3 run_experiment.py [--checkpoint-only] [experiment.json]
 
+An experiment without a "campaign" section only runs the fault-free
+baseline.
+"""
+
+import argparse
 import ast
 import fcntl
 import hashlib
 import json
+import random
 import shutil
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -69,17 +76,72 @@ def checkpoint_key(config):
     return name, key
 
 
+def available_memory_gib():
+    with open("/proc/meminfo") as meminfo:
+        for line in meminfo:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1024**2
+    return float("inf")
+
+
+@contextmanager
+def job_slot(slots):
+    """Hold one of the gem5 job slots that campaigns can share.
+
+    slots is the runtime "job_slots" setting: {"dir", "count",
+    "min_available_memory_gib"}. Campaigns given the same dir run at most
+    count gem5 processes in total, so several campaigns started together
+    share one memory budget. A slot is only taken while the host has at
+    least min_available_memory_gib available, which leaves room for other
+    users of the machine. Without the setting this does nothing.
+    """
+    if not slots:
+        yield
+        return
+    directory = Path(slots["dir"])
+    directory.mkdir(parents=True, exist_ok=True)
+    min_available = slots.get("min_available_memory_gib", 0)
+    while True:
+        for index in random.sample(range(slots["count"]), slots["count"]):
+            lock = open(directory / f"slot_{index:03d}.lock", "w")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                lock.close()
+                continue
+            if available_memory_gib() < min_available:
+                lock.close()
+                break
+            try:
+                yield
+            finally:
+                lock.close()
+            return
+        time.sleep(random.uniform(10, 20))
+
+
 def main():
-    config_path = (
-        Path(sys.argv[1]).resolve()
-        if len(sys.argv) > 1
-        else HERE / "experiment.json"
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "config", nargs="?", type=Path, default=HERE / "experiment.json"
     )
+    parser.add_argument(
+        "--checkpoint-only",
+        action="store_true",
+        help="Only take the ROI checkpoint (this needs KVM), so that a "
+        "machine without KVM can run the experiment from a copy of it.",
+    )
+    args = parser.parse_args()
+    config_path = args.config.resolve()
     config = json.loads(config_path.read_text())
-    system, campaign, runtime = (
-        config[key] for key in ("system", "campaign", "runtime")
-    )
+    system, runtime = config["system"], config["runtime"]
+    campaign = config.get("campaign")
     runtime.setdefault("checkpoint_dir", "checkpoints")
+    slots = runtime.get("job_slots")
+    if slots:
+        slots["dir"] = str(
+            (config_path.parent / Path(slots["dir"]).expanduser()).resolve()
+        )
     # Resolve paths once, before each simulation changes to its own directory.
     for key in (
         "gem5_binary",
@@ -94,19 +156,11 @@ def main():
                 ).resolve()
             )
 
-    output = Path(runtime["output_dir"]) / datetime.now().strftime(
-        "%Y%m%d_%H%M%S_%f"
-    )
-    output.mkdir(parents=True, exist_ok=False)
-    saved_config = output / "experiment.json"
-    saved_config.write_text(json.dumps(config, indent=2))
-    print(f"Results: {output}", flush=True)
-
     gem5 = [runtime["gem5_binary"], "--listener-mode=off"]
     if runtime["fault_module_path"]:
         gem5 += ["--path", runtime["fault_module_path"]]
 
-    def run_gem5(script, folder, extra, timeout):
+    def run_gem5(script, folder, extra, timeout, config_file):
         folder.mkdir(parents=True, exist_ok=True)
         command = (
             gem5
@@ -114,11 +168,11 @@ def main():
                 f"--outdir={folder}",
                 str(HERE / script),
                 "--config",
-                str(saved_config),
+                str(config_file),
             ]
             + extra
         )
-        with (folder / "gem5.log").open("w") as log:
+        with job_slot(slots), (folder / "gem5.log").open("w") as log:
             subprocess.run(
                 command,
                 cwd=folder,
@@ -148,15 +202,29 @@ def main():
             partial = stored.with_name(f"{name}.partial")
             shutil.rmtree(stored, ignore_errors=True)
             shutil.rmtree(partial, ignore_errors=True)
+            partial.mkdir()
+            boot_config = partial / "experiment.json"
+            boot_config.write_text(json.dumps(config, indent=2))
             run_gem5(
                 "run_mesi_checkpoint.py",
                 partial / "boot",
                 ["--checkpoint-dir", str(partial / "cpt")],
                 runtime["checkpoint_timeout_seconds"],
+                boot_config,
             )
             (partial / "key.json").write_text(json.dumps(key, indent=2))
             partial.rename(stored)
             print(f"New ROI checkpoint: {checkpoint}", flush=True)
+    if args.checkpoint_only:
+        return 0
+
+    output = Path(runtime["output_dir"]) / datetime.now().strftime(
+        "%Y%m%d_%H%M%S_%f"
+    )
+    output.mkdir(parents=True, exist_ok=False)
+    saved_config = output / "experiment.json"
+    saved_config.write_text(json.dumps(config, indent=2))
+    print(f"Results: {output}", flush=True)
     (output / "checkpoint").symlink_to(stored)
 
     # 1. Baseline restores the checkpoint and writes the ROI cycles and ticks.
@@ -167,10 +235,14 @@ def main():
         output / "baseline",
         ["--checkpoint", str(checkpoint), "--cycles-file", str(baseline_file)],
         runtime["baseline_timeout_seconds"],
+        saved_config,
     )
     baseline_seconds = time.monotonic() - started
     baseline = json.loads(baseline_file.read_text())
     print(f"Baseline cycles: {baseline['cycles']}", flush=True)
+    if campaign is None:
+        print(f"Baseline took {baseline_seconds:.0f} s", flush=True)
+        return 0
 
     # Hangs are detected by the tick limit below; the host timeout is only a
     # safety net, so it must leave room for a run that reaches that limit
@@ -230,6 +302,8 @@ def main():
     ]
     if campaign["seed"] is not None:
         command += ["--seed", str(campaign["seed"])]
+    if campaign.get("num_faults"):
+        command += ["--num-faults", str(campaign["num_faults"])]
     subprocess.run(command, check=True)
     faults = json.loads(campaign_file.read_text())["faults"]
     # Optional cap for quick smoke tests; it breaks the campaign's
@@ -272,6 +346,7 @@ def main():
                     max_ticks,
                 ],
                 fault_timeout,
+                saved_config,
             )
             status = "ok"
         except subprocess.TimeoutExpired:
