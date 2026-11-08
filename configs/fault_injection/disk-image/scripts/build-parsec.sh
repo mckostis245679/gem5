@@ -19,6 +19,14 @@ ln -sf /usr/bin/cmake pkgs/tools/cmake/inst/amd64-linux.gcc-hooks/bin/cmake
 echo "Ubuntu $(cmake --version | head -1)" \
     > pkgs/tools/cmake/inst/amd64-linux.gcc-hooks/build-info
 
+# canneal's thread function entry_pt() returns void* but has no return
+# statement. GCC 13 then emits nothing after its last call, so every
+# annealer thread runs into the next function in the binary when it
+# finishes and the program crashes before the ROI ends.
+canneal_main=pkgs/kernels/canneal/src/main.cpp
+grep -q "return NULL;" "$canneal_main" ||
+    sed -i 's|ptr->Run();|ptr->Run();\n    return NULL;|' "$canneal_main"
+
 parsecmgmt -a build -p hooks -c gcc-hooks > "$LOGS/hooks.log" 2>&1
 
 BENCHMARKS="blackscholes bodytrack canneal dedup facesim ferret fluidanimate
